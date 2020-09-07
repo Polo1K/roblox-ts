@@ -5,6 +5,7 @@ import { TransformState } from "TSTransformer";
 import { transformIdentifierDefined } from "TSTransformer/nodes/expressions/transformIdentifier";
 import { transformParameters } from "TSTransformer/nodes/transformParameters";
 import { transformStatementList } from "TSTransformer/nodes/transformStatementList";
+import { wrapStatementsAsGenerator } from "TSTransformer/util/wrapStatementsAsGenerator";
 
 export function transformFunctionDeclaration(state: TransformState, node: ts.FunctionDeclaration) {
 	if (!node.body) {
@@ -15,6 +16,12 @@ export function transformFunctionDeclaration(state: TransformState, node: ts.Fun
 
 	assert(node.name || isExportDefault);
 
+	const name = node.name ? transformIdentifierDefined(state, node.name) : luau.id("default");
+
+	// eslint-disable-next-line prefer-const
+	let { statements, parameters, hasDotDotDot } = transformParameters(state, node);
+	luau.list.pushList(statements, transformStatementList(state, node.body.statements));
+
 	let localize = isExportDefault;
 	if (node.name) {
 		const symbol = state.typeChecker.getSymbolAtLocation(node.name);
@@ -22,10 +29,9 @@ export function transformFunctionDeclaration(state: TransformState, node: ts.Fun
 		localize = state.isHoisted.get(symbol) !== true;
 	}
 
-	const name = node.name ? transformIdentifierDefined(state, node.name) : luau.id("default");
-
-	const { statements, parameters, hasDotDotDot } = transformParameters(state, node);
-	luau.list.pushList(statements, transformStatementList(state, node.body.statements));
+	if (node.asteriskToken) {
+		statements = wrapStatementsAsGenerator(state, statements);
+	}
 
 	if (!!(node.modifierFlagsCache & ts.ModifierFlags.Async)) {
 		const right = luau.create(luau.SyntaxKind.CallExpression, {
