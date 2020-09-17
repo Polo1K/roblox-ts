@@ -52,6 +52,10 @@ export function getDiagnosticId(diagnostic: ts.Diagnostic): number {
  * Defines diagnostic error messages
  */
 export const diagnostics = {
+	// reserved identifiers
+	noReservedIdentifier: diagnostic(`Reserved Lua keywords cannot be used as identifiers!`),
+	noClassMetamethods: diagnostic(`Metamethods cannot be used in class definitions!`),
+
 	// banned statements
 	noForInStatement: diagnostic(
 		"for-in loop statements are not supported!",
@@ -96,6 +100,9 @@ export const diagnostics = {
 	noPrototype: diagnostic("`prototype` is not supported!"),
 	noSuperProperty: diagnostic("super properties are not supported!"),
 	noNonNumberStringRelationOperator: diagnostic("Relation operators can only be used on number or string types!"),
+	noInstanceMethodCollisions: diagnostic("Static methods cannot use the same name as instance methods!"),
+	noStaticMethodCollisions: diagnostic("Instance methods cannot use the same name as static methods!"),
+	noUnaryPlus: diagnostic("Unary `+` is not supported!", suggestion("Use `tonumber(x)` instead.")),
 
 	// macro methods
 	noOptionalMacroCall: diagnostic("Macro methods can not be optionally called!"),

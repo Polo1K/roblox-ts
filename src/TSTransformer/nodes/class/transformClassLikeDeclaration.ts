@@ -2,6 +2,7 @@ import ts from "byots";
 import luau from "LuauAST";
 import { diagnostics } from "Shared/diagnostics";
 import { assert } from "Shared/util/assert";
+import { isLuauMetamethod } from "Shared/util/isLuauMetamethod";
 import { SYMBOL_NAMES, TransformState } from "TSTransformer";
 import { transformClassConstructor } from "TSTransformer/nodes/class/transformClassConstructor";
 import { transformPropertyDeclaration } from "TSTransformer/nodes/class/transformPropertyDeclaration";
@@ -11,6 +12,7 @@ import { transformMethodDeclaration } from "TSTransformer/nodes/transformMethodD
 import { convertToIndexableExpression } from "TSTransformer/util/convertToIndexableExpression";
 import { extendsRoactComponent } from "TSTransformer/util/extendsRoactComponent";
 import { getExtendsNode } from "TSTransformer/util/getExtendsNode";
+import { validateIdentifier } from "TSTransformer/util/validateIdentifier";
 
 function getConstructor(node: ts.ClassLikeDeclaration): (ts.ConstructorDeclaration & { body: ts.Block }) | undefined {
 	return node.members.find(
@@ -291,6 +293,10 @@ export function transformClassLikeDeclaration(state: TransformState, node: ts.Cl
 
 	const isExportDefault = !!(node.modifierFlagsCache & ts.ModifierFlags.ExportDefault);
 
+	if (node.name) {
+		validateIdentifier(state, node.name);
+	}
+
 	/*
 		local className;
 		do
@@ -370,7 +376,26 @@ export function transformClassLikeDeclaration(state: TransformState, node: ts.Cl
 		}
 	}
 
+	const classType = state.typeChecker.getTypeOfSymbolAtLocation(node.symbol, node);
+	const instanceType = state.typeChecker.getDeclaredTypeOfSymbol(node.symbol);
+
 	for (const method of methods) {
+		if ((ts.isIdentifier(method.name) || ts.isStringLiteral(method.name)) && isLuauMetamethod(method.name.text)) {
+			state.addDiagnostic(diagnostics.noClassMetamethods(method.name));
+		}
+
+		if (ts.isIdentifier(method.name) || ts.isStringLiteral(method.name)) {
+			if (!!(method.modifierFlagsCache & ts.ModifierFlags.Static)) {
+				if (instanceType.getProperty(method.name.text) !== undefined) {
+					state.addDiagnostic(diagnostics.noInstanceMethodCollisions(method));
+				}
+			} else {
+				if (classType.getProperty(method.name.text) !== undefined) {
+					state.addDiagnostic(diagnostics.noStaticMethodCollisions(method));
+				}
+			}
+		}
+
 		luau.list.pushList(statementsInner, transformMethodDeclaration(state, method, { value: internalName }));
 	}
 
