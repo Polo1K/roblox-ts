@@ -1,18 +1,15 @@
 import ts from "byots";
 import luau from "LuauAST";
 import { render, RenderState, renderStatements } from "LuauRenderer";
-import { PathTranslator } from "Shared/classes/PathTranslator";
 import { RbxPath, RbxPathParent, RojoResolver } from "Shared/classes/RojoResolver";
 import { PARENT_FIELD, ProjectType } from "Shared/constants";
 import { diagnostics } from "Shared/diagnostics";
 import { assert } from "Shared/util/assert";
 import { getOrSetDefault } from "Shared/util/getOrSetDefault";
-import * as tsst from "ts-simple-type";
-import { GlobalSymbols, MacroManager, MultiTransformState, RoactSymbolManager } from "TSTransformer";
+import { MultiTransformState } from "TSTransformer";
 import { createGetService } from "TSTransformer/util/createGetService";
 import { propertyAccessExpressionChain } from "TSTransformer/util/expressionChain";
 import { getModuleAncestor, skipUpwards } from "TSTransformer/util/traversal";
-import originalTS from "typescript";
 
 /**
  * The ID of the Runtime library.
@@ -46,25 +43,22 @@ export class TransformState {
 		return renderStatements(new RenderState(), list);
 	}
 
+	public readonly resolver: ts.EmitResolver;
+
 	constructor(
-		public readonly compilerOptions: ts.CompilerOptions,
+		public readonly data: import("Project/types").ProjectData,
+		public readonly services: import("Project/types").ProjectServices,
 		public readonly multiTransformState: MultiTransformState,
+		public readonly compilerOptions: ts.CompilerOptions,
 		public readonly rojoResolver: RojoResolver,
-		public readonly pathTranslator: PathTranslator,
 		public readonly runtimeLibRbxPath: RbxPath | undefined,
-		public readonly nodeModulesPath: string,
 		public readonly nodeModulesRbxPath: RbxPath | undefined,
-		public readonly nodeModulesPathMapping: Map<string, string>,
 		public readonly typeChecker: ts.TypeChecker,
-		public readonly resolver: ts.EmitResolver,
-		public readonly globalSymbols: GlobalSymbols,
-		public readonly macroManager: MacroManager,
-		public readonly roactSymbolManager: RoactSymbolManager | undefined,
-		public readonly projectType: ProjectType | undefined,
-		public readonly pkgVersion: string | undefined,
+		public readonly projectType: ProjectType,
 		sourceFile: ts.SourceFile,
 	) {
 		this.sourceFileText = sourceFile.getFullText();
+		this.resolver = typeChecker.getEmitResolver(sourceFile);
 	}
 
 	public readonly tryUsesStack = new Array<TryUses>();
@@ -155,22 +149,6 @@ export class TransformState {
 	}
 
 	/**
-	 * Converts a TypeScript type into a "SimpleType"
-	 * @param type The type to convert.
-	 */
-	public getSimpleType(type: ts.Type) {
-		return tsst.toSimpleType(type as originalTS.Type, this.typeChecker as originalTS.TypeChecker);
-	}
-
-	/**
-	 * Converts the TypeScript type of `node` into a "SimpleType"
-	 * @param node The node with the type to convert.
-	 */
-	public getSimpleTypeFromNode(node: ts.Node) {
-		return this.getSimpleType(this.getType(node));
-	}
-
-	/**
 	 * Returns the prerequisite statements created by `callback`.
 	 */
 	public capturePrereqs(callback: () => void) {
@@ -182,7 +160,7 @@ export class TransformState {
 	/**
 	 * Returns the node and prerequisite statements created by `callback`.
 	 */
-	public capture<T extends luau.Node>(callback: () => T): [T, luau.List<luau.Statement>] {
+	public capture<T extends luau.Node>(callback: () => T): [node: T, prereqs: luau.List<luau.Statement>] {
 		let node!: T;
 		const prereqs = this.capturePrereqs(() => (node = callback()));
 		return [node, prereqs];
@@ -250,7 +228,7 @@ export class TransformState {
 					right: expression,
 				});
 			} else {
-				const sourceOutPath = this.pathTranslator.getOutputPath(sourceFile.fileName);
+				const sourceOutPath = this.services.pathTranslator.getOutputPath(sourceFile.fileName);
 				const rbxPath = this.rojoResolver.getRbxPathFromFilePath(sourceOutPath);
 				if (!rbxPath) {
 					this.addDiagnostic(diagnostics.noRojoData(sourceFile));

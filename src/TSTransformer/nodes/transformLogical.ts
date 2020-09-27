@@ -44,7 +44,7 @@ function getLogicalChain(
 		const [expression, prereqs] = state.capture(() => transformExpression(state, original));
 		let inline = false;
 		if (enableInlining) {
-			const willWrap = index < array.length - 1 && willCreateTruthinessChecks(state, type);
+			const willWrap = index < array.length - 1 && willCreateTruthinessChecks(type);
 			inline = luau.list.isEmpty(prereqs) && !willWrap;
 		}
 		return { type, expression, statements: prereqs, inline };
@@ -149,17 +149,9 @@ export function transformLogical(state: TransformState, node: ts.BinaryExpressio
 			createTruthinessChecks(state, conditionId, type),
 		);
 	} else if (node.operatorToken.kind === ts.SyntaxKind.BarBarToken) {
-		return buildInlineConditionExpression(state, node, node.operatorToken.kind, "or", (conditionId, type) => {
-			let expression = createTruthinessChecks(state, conditionId, type);
-
-			if (!luau.isSimple(expression)) {
-				expression = luau.create(luau.SyntaxKind.ParenthesizedExpression, {
-					expression,
-				});
-			}
-
-			return luau.unary("not", expression);
-		});
+		return buildInlineConditionExpression(state, node, node.operatorToken.kind, "or", (conditionId, type) =>
+			luau.unary("not", createTruthinessChecks(state, conditionId, type)),
+		);
 	} else if (node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken) {
 		/*
 		  nullish coalescing is similar to and/or transformation, but:

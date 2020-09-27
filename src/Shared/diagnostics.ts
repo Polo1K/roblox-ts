@@ -1,5 +1,6 @@
 import ts from "byots";
 import kleur from "kleur";
+import { createDiagnosticWithLocation } from "Shared/util/createDiagnosticWithLocation";
 
 export type DiagnosticFactory = {
 	(node: ts.Node): ts.DiagnosticWithLocation;
@@ -14,19 +15,6 @@ function suggestion(text: string) {
 
 function issue(id: number) {
 	return "More information: " + kleur.grey(`${REPO_URL}/issues/${id}`);
-}
-
-export function createDiagnosticWithLocation(id: number, message: string, node: ts.Node): ts.DiagnosticWithLocation {
-	return {
-		category: ts.DiagnosticCategory.Error,
-		code: (" roblox-ts" as unknown) as number,
-		file: node.getSourceFile(),
-		messageText: message,
-		start: node.getStart(),
-		length: node.getWidth(),
-		diagnosticType: 0,
-		id,
-	} as ts.DiagnosticWithLocation;
 }
 
 let id = 0;
@@ -77,6 +65,7 @@ export const diagnostics = {
 		suggestion("Use `typeIs(value, type)` or `typeOf(value)` instead."),
 	),
 	noRegex: diagnostic("Regular expressions are not supported!"),
+	noBigInt: diagnostic("BigInt literals are not supported!"),
 
 	// banned features
 	noAny: diagnostic("Using values of type `any` is not supported!", suggestion("Use `unknown` instead.")),
@@ -105,6 +94,7 @@ export const diagnostics = {
 	noUnaryPlus: diagnostic("Unary `+` is not supported!", suggestion("Use `tonumber(x)` instead.")),
 	noLuaTupleIterationWithoutDestructure: diagnostic("IterableFunction<LuaTuple<T>> must be destructured in-line!"),
 	noAwaitForOf: diagnostic("`await` is not supported in for-of loops!"),
+	noAsyncGeneratorFunctions: diagnostic("Async generator functions are not supported!"),
 
 	// macro methods
 	noOptionalMacroCall: diagnostic("Macro methods can not be optionally called!"),

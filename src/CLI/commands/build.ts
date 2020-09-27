@@ -2,11 +2,20 @@ import ts from "byots";
 import { CLIError } from "CLI/errors/CLIError";
 import fs from "fs-extra";
 import path from "path";
-import { Project, ProjectFlags, ProjectOptions } from "Project";
+import { cleanup } from "Project/functions/cleanup";
+import { compileFiles } from "Project/functions/compileFiles";
+import { copyFiles } from "Project/functions/copyFiles";
+import { copyInclude } from "Project/functions/copyInclude";
+import { createProjectData } from "Project/functions/createProjectData";
+import { createProjectProgram } from "Project/functions/createProjectProgram";
+import { createProjectServices } from "Project/functions/createProjectServices";
+import { getChangedSourceFiles } from "Project/functions/getChangedSourceFiles";
+import { setupProjectWatchProgram } from "Project/functions/setupProjectWatchProgram";
+import { ProjectFlags, ProjectOptions } from "Project/types";
+import { getRootDirs } from "Project/util/getRootDirs";
+import { LogService } from "Shared/classes/LogService";
 import { ProjectType } from "Shared/constants";
-import { DiagnosticError } from "Shared/errors/DiagnosticError";
-import { ProjectError } from "Shared/errors/ProjectError";
-import { assert } from "Shared/util/assert";
+import { LoggableError } from "Shared/errors/LoggableError";
 import yargs from "yargs";
 
 function getTsConfigProjectOptions(tsConfigPath?: string): Partial<ProjectOptions> | undefined {
@@ -18,9 +27,21 @@ function getTsConfigProjectOptions(tsConfigPath?: string): Partial<ProjectOption
 	}
 }
 
+function findTsConfigPath(projectPath: string) {
+	let tsConfigPath: string | undefined = path.resolve(projectPath);
+	if (!fs.existsSync(tsConfigPath) || !fs.statSync(tsConfigPath).isFile()) {
+		tsConfigPath = ts.findConfigFile(tsConfigPath, ts.sys.fileExists);
+		if (tsConfigPath === undefined) {
+			throw new CLIError("Unable to find tsconfig.json!");
+		}
+	}
+	return path.resolve(process.cwd(), tsConfigPath);
+}
+
 /**
  * Defines the behavior for the `rbxtsc build` command.
  */
+// eslint-disable-next-line @typescript-eslint/ban-types
 export = ts.identity<yargs.CommandModule<{}, Partial<ProjectOptions> & ProjectFlags>>({
 	command: ["$0", "build"],
 
@@ -39,6 +60,12 @@ export = ts.identity<yargs.CommandModule<{}, Partial<ProjectOptions> & ProjectFl
 				boolean: true,
 				default: false,
 				describe: "enable watch mode",
+			})
+			.option("usePolling", {
+				alias: "w",
+				boolean: true,
+				default: false,
+				describe: "use polling for watch mode",
 			})
 			.option("verbose", {
 				boolean: true,
@@ -65,37 +92,40 @@ export = ts.identity<yargs.CommandModule<{}, Partial<ProjectOptions> & ProjectFl
 			}),
 
 	handler: async argv => {
-		// attempt to retrieve TypeScript configuration JSON path
-		let tsConfigPath: string | undefined = path.resolve(argv.project);
-		if (!fs.existsSync(tsConfigPath) || !fs.statSync(tsConfigPath).isFile()) {
-			tsConfigPath = ts.findConfigFile(tsConfigPath, ts.sys.fileExists);
-			if (tsConfigPath === undefined) {
-				throw new CLIError("Unable to find tsconfig.json!");
-			}
-		}
-		tsConfigPath = path.resolve(process.cwd(), tsConfigPath);
+		const tsConfigPath = findTsConfigPath(argv.project);
 
 		// parse the contents of the retrieved JSON path as a partial `ProjectOptions`
-		const tsConfigProjectOptions = getTsConfigProjectOptions(tsConfigPath);
-		const projectOptions: Partial<ProjectOptions> = Object.assign({}, tsConfigProjectOptions, argv as ProjectFlags);
+		const projectOptions: Partial<ProjectOptions> = Object.assign(
+			{},
+			getTsConfigProjectOptions(tsConfigPath),
+			argv as ProjectFlags,
+		);
 
-		// if watch mode is enabled
-		if (argv.watch) {
-			assert(false, "Watch mode is not implemented");
-		} else {
-			try {
-				// attempt to build the project
-				const project = new Project(tsConfigPath, projectOptions, argv);
-				project.cleanup();
-				project.compileAll();
-			} catch (e) {
-				// catch recognized errors
-				if (e instanceof ProjectError || e instanceof DiagnosticError) {
-					e.log();
-					process.exit(1);
-				} else {
-					throw e;
+		LogService.verbose = argv.verbose === true;
+
+		const diagnosticReporter = ts.createDiagnosticReporter(ts.sys, true);
+
+		try {
+			const data = createProjectData(tsConfigPath, projectOptions, argv);
+			if (argv.watch) {
+				setupProjectWatchProgram(data, argv.usePolling);
+			} else {
+				const program = createProjectProgram(data);
+				const services = createProjectServices(program, data);
+				cleanup(services.pathTranslator);
+				copyInclude(data);
+				copyFiles(services, new Set(getRootDirs(program.getCompilerOptions())));
+				const emitResult = compileFiles(program, data, services, getChangedSourceFiles(program));
+				for (const diagnostic of emitResult.diagnostics) {
+					diagnosticReporter(diagnostic);
 				}
+			}
+		} catch (e) {
+			if (e instanceof LoggableError) {
+				e.log();
+				process.exit(1);
+			} else {
+				throw e;
 			}
 		}
 	},

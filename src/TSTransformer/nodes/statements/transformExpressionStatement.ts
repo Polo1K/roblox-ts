@@ -2,11 +2,12 @@ import ts from "byots";
 import luau from "LuauAST";
 import { TransformState } from "TSTransformer";
 import { transformExpression } from "TSTransformer/nodes/expressions/transformExpression";
+import { transformLogicalOrCoalescingAssignmentExpressionStatement } from "TSTransformer/nodes/transformLogicalOrCoalescingAssignmentExpression";
 import { transformWritableAssignment, transformWritableExpression } from "TSTransformer/nodes/transformWritable";
 import { isUnaryAssignmentOperator } from "TSTransformer/typeGuards";
 import { createCompoundAssignmentStatement, getSimpleAssignmentOperator } from "TSTransformer/util/assignment";
 import { skipDownwards } from "TSTransformer/util/traversal";
-import { isStringSimpleType } from "TSTransformer/util/types";
+import { isStringType } from "TSTransformer/util/types";
 import { wrapToString } from "TSTransformer/util/wrapToString";
 
 function transformUnaryExpressionStatement(
@@ -22,26 +23,31 @@ function transformUnaryExpressionStatement(
 	});
 }
 
-export function transformExpressionStatementInner(state: TransformState, expression: ts.Expression) {
+export function transformExpressionStatementInner(
+	state: TransformState,
+	expression: ts.Expression,
+): luau.List<luau.Statement> {
 	if (ts.isBinaryExpression(expression)) {
 		const operatorKind = expression.operatorToken.kind;
-		if (
+		if (ts.isLogicalOrCoalescingAssignmentExpression(expression)) {
+			return transformLogicalOrCoalescingAssignmentExpressionStatement(state, expression);
+		} else if (
 			ts.isAssignmentOperator(operatorKind) &&
 			!ts.isArrayLiteralExpression(expression.left) &&
 			!ts.isObjectLiteralExpression(expression.left)
 		) {
 			const writableType = state.getType(expression.left);
 			const valueType = state.getType(expression.right);
-			const rightSimpleType = state.getSimpleType(valueType);
 			const operator = getSimpleAssignmentOperator(
-				state.getSimpleType(writableType),
+				writableType,
 				operatorKind as ts.AssignmentOperator,
-				rightSimpleType,
+				valueType,
 			);
 			const { writable, readable, value } = transformWritableAssignment(
 				state,
 				expression.left,
 				expression.right,
+				operator === undefined,
 				operator === undefined,
 			);
 			if (operator !== undefined) {
@@ -49,7 +55,7 @@ export function transformExpressionStatementInner(state: TransformState, express
 					luau.create(luau.SyntaxKind.Assignment, {
 						left: writable,
 						operator,
-						right: operator === "..=" && !isStringSimpleType(rightSimpleType) ? wrapToString(value) : value,
+						right: operator === "..=" && !isStringType(valueType) ? wrapToString(value) : value,
 					}),
 				);
 			} else {

@@ -6,7 +6,7 @@ import { transformExpression } from "TSTransformer/nodes/expressions/transformEx
 import { transformMethodDeclaration } from "TSTransformer/nodes/transformMethodDeclaration";
 import { transformObjectKey } from "TSTransformer/nodes/transformObjectKey";
 import { assignToMapPointer, disableMapInline, MapPointer } from "TSTransformer/util/pointer";
-import { canBeUndefined } from "TSTransformer/util/types";
+import { isPossiblyUndefined } from "TSTransformer/util/types";
 
 function transformPropertyAssignment(
 	state: TransformState,
@@ -14,15 +14,18 @@ function transformPropertyAssignment(
 	name: ts.Identifier | ts.StringLiteral | ts.NumericLiteral | ts.ComputedPropertyName,
 	initializer: ts.Expression,
 ) {
-	const [left, leftPrereqs] = state.capture(() => transformObjectKey(state, name));
+	// eslint-disable-next-line prefer-const
+	let [left, leftPrereqs] = state.capture(() => transformObjectKey(state, name));
 	const [right, rightPrereqs] = state.capture(() => transformExpression(state, initializer));
 
 	if (!luau.list.isEmpty(leftPrereqs) || !luau.list.isEmpty(rightPrereqs)) {
 		disableMapInline(state, ptr);
+		state.prereqList(leftPrereqs);
+		left = state.pushToVar(left);
 	}
 
-	state.prereqList(leftPrereqs);
 	state.prereqList(rightPrereqs);
+
 	assignToMapPointer(state, ptr, left, right);
 }
 
@@ -30,7 +33,7 @@ function transformSpreadAssignment(state: TransformState, ptr: MapPointer, prope
 	disableMapInline(state, ptr);
 	let spreadExp = transformExpression(state, property.expression);
 
-	const possiblyUndefined = canBeUndefined(state, state.getType(property.expression));
+	const possiblyUndefined = isPossiblyUndefined(state.getType(property.expression));
 	if (possiblyUndefined) {
 		spreadExp = state.pushToVarIfComplex(spreadExp);
 	}
@@ -81,7 +84,7 @@ export function transformObjectLiteralExpression(state: TransformState, node: ts
 		} else if (ts.isSpreadAssignment(property)) {
 			transformSpreadAssignment(state, ptr, property);
 		} else if (ts.isMethodDeclaration(property)) {
-			transformMethodDeclaration(state, property, ptr);
+			state.prereqList(transformMethodDeclaration(state, property, ptr));
 		} else {
 			// must be ts.AccessorDeclaration, which is banned
 			state.addDiagnostic(diagnostics.noGetterSetter(property));

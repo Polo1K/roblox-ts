@@ -10,7 +10,7 @@ import { isDefinedAsLet } from "TSTransformer/util/isDefinedAsLet";
 import { isSymbolOfValue } from "TSTransformer/util/isSymbolOfValue";
 import { getAncestor } from "TSTransformer/util/traversal";
 
-function getExportPair(state: TransformState, exportSymbol: ts.Symbol): [string, luau.Identifier] {
+function getExportPair(state: TransformState, exportSymbol: ts.Symbol): [name: string, id: luau.Identifier] {
 	const declaration = exportSymbol.getDeclarations()?.[0];
 	if (declaration && ts.isExportSpecifier(declaration)) {
 		return [declaration.name.text, transformIdentifierDefined(state, declaration.propertyName ?? declaration.name)];
@@ -178,7 +178,7 @@ export function transformSourceFile(state: TransformState, node: ts.SourceFile) 
 	// moduleScripts must `return nil` if they do not export any values
 	const lastStatement = getLastNonCommentStatement(statements.tail);
 	if (!lastStatement || !luau.isReturnStatement(lastStatement.value)) {
-		const outputPath = state.pathTranslator.getOutputPath(node.fileName);
+		const outputPath = state.services.pathTranslator.getOutputPath(node.fileName);
 		if (state.rojoResolver.getRbxTypeFromFilePath(outputPath) === RbxType.ModuleScript) {
 			luau.list.push(statements, luau.create(luau.SyntaxKind.ReturnStatement, { expression: luau.nil() }));
 		}
